@@ -2,7 +2,7 @@ import { BusEvent } from "@/bus/bus-event"
 import { Bus } from "@/bus"
 import { Log } from "../util/log"
 import { describeRoute, generateSpecs, validator, resolver, openAPIRouteHandler } from "hono-openapi"
-import { Hono } from "hono"
+import { Hono, type Context } from "hono"
 import { cors } from "hono/cors"
 import { streamSSE } from "hono/streaming"
 import { proxy } from "hono/proxy"
@@ -40,6 +40,8 @@ import { QuestionRoutes } from "./routes/question"
 import { PermissionRoutes } from "./routes/permission"
 import { GlobalRoutes } from "./routes/global"
 import { MDNS } from "./mdns"
+import { Worktree } from "../worktree"
+import path from "path"
 
 // @ts-ignore This global is needed to prevent ai-sdk from logging warnings to stdout https://github.com/vercel/ai/blob/2dc67e0ef538307f21368db32d5a12345d98831b/packages/ai/src/logger/log-warnings.ts#L85
 globalThis.AI_SDK_LOG_WARNINGS = false
@@ -49,9 +51,129 @@ export namespace Server {
 
   let _url: URL | undefined
   let _corsWhitelist: string[] = []
+  let _basePath: string = "/"
+  let _appRoot: string | undefined
+
+  async function resolveAppRoot() {
+    if (_appRoot !== undefined) return _appRoot
+    const candidates = [
+      process.env.OPENCODE_APP_DIR,
+      path.join(Global.Path.data, "app"),
+      path.join(Global.Path.home, ".opencode", "app"),
+    ].filter(Boolean) as string[]
+
+    for (const candidate of candidates) {
+      const root = path.resolve(candidate)
+      const indexPath = path.join(root, "index.html")
+      if (await Bun.file(indexPath).exists()) {
+        _appRoot = root
+        return root
+      }
+    }
+    _appRoot = ""
+    return ""
+  }
+
+  function inferContentType(filePath: string, type?: string) {
+    if (type) return type
+    if (filePath.endsWith(".html")) return "text/html"
+    if (filePath.endsWith(".js") || filePath.endsWith(".mjs")) return "application/javascript"
+    if (filePath.endsWith(".css")) return "text/css"
+    if (filePath.endsWith(".json")) return "application/json"
+    return ""
+  }
+
+  async function serveLocalApp(c: Context, appRoot: string, reqPath: string) {
+    let pathname = reqPath
+    try {
+      pathname = decodeURIComponent(pathname)
+    } catch {}
+
+    const rel = pathname.startsWith("/") ? `.${pathname}` : `./${pathname}`
+    const absolute = path.resolve(appRoot, rel)
+    const relative = path.relative(appRoot, absolute)
+    if (relative.startsWith("..") || path.isAbsolute(relative)) {
+      return c.text("Not found", 404)
+    }
+
+    const hasExt = path.extname(absolute) !== ""
+    const filePath = hasExt ? absolute : path.join(appRoot, "index.html")
+    const file = Bun.file(filePath)
+    if (!(await file.exists())) return c.text("Not found", 404)
+
+    let contentType = inferContentType(filePath, file.type)
+    const isTextContent =
+      contentType.includes("text/html") ||
+      contentType.includes("application/javascript") ||
+      contentType.includes("text/javascript") ||
+      contentType.includes("text/css")
+
+    if (_basePath !== "/" && isTextContent) {
+      let content = await file.text()
+      content = content
+        .replaceAll(/url\("\//g, `url("${_basePath}/`)
+        .replaceAll(/url\('\//g, `url('${_basePath}/`)
+        .replaceAll(/url\(\//g, `url(${_basePath}/`)
+        .replaceAll(/href="\//g, `href="${_basePath}/`)
+        .replaceAll(/src="\//g, `src="${_basePath}/`)
+        .replaceAll(/="\/assets\//g, `="${_basePath}/assets/`)
+
+      if (contentType.includes("javascript")) {
+        const basePrefix = _basePath.replace(/^\/+/, "")
+        content = content
+          .replaceAll(/(["'])assets\//g, `$1${basePrefix}/assets/`)
+          .replaceAll(/(["'])\/assets\//g, `$1${_basePath}/assets/`)
+      }
+
+      if (contentType.includes("text/html")) {
+        const baseTag = `<base href="${_basePath}/">`
+        const scriptTag = `<script>window.__OPENCODE_BASE_URL__="${_basePath}"</script>`
+        content = content.replace(/<head(\s[^>]*)?>/i, (match) => `${match}${baseTag}${scriptTag}`)
+      }
+
+      const newHeaders = new Headers()
+      if (contentType) newHeaders.set("Content-Type", contentType)
+      if (contentType.includes("text/html")) {
+        newHeaders.set(
+          "Content-Security-Policy",
+          "default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; img-src 'self' data: https:; font-src 'self' data:; connect-src 'self'",
+        )
+      } else {
+        newHeaders.set(
+          "Content-Security-Policy",
+          "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: https:; font-src 'self' data:; connect-src 'self'",
+        )
+      }
+      return new Response(content, { status: 200, headers: newHeaders })
+    }
+
+    const headers = new Headers()
+    if (contentType) headers.set("Content-Type", contentType)
+    if (contentType.includes("text/html")) {
+      headers.set(
+        "Content-Security-Policy",
+        "default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; img-src 'self' data: https:; font-src 'self' data:; connect-src 'self'",
+      )
+    } else {
+      headers.set(
+        "Content-Security-Policy",
+        "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: https:; font-src 'self' data:; connect-src 'self'",
+      )
+    }
+    return new Response(file, { status: 200, headers })
+  }
 
   export function url(): URL {
     return _url ?? new URL("http://localhost:4096")
+  }
+
+  export function basePath(): string {
+    return _basePath
+  }
+
+  export const Event = {
+    Connected: BusEvent.define("server.connected", z.object({})),
+    Disposed: BusEvent.define("global.disposed", z.object({})),
   }
 
   const app = new Hono()
@@ -76,6 +198,17 @@ export namespace Server {
           return c.json(new NamedError.Unknown({ message }).toObject(), {
             status: 500,
           })
+        })
+        // Strip basePath prefix from request path for routing
+        .use(async (c, next) => {
+          if (_basePath !== "/" && c.req.path.startsWith(_basePath)) {
+            const newPath = c.req.path.slice(_basePath.length) || "/"
+            const newUrl = new URL(c.req.url)
+            newUrl.pathname = newPath
+            const newRequest = new Request(newUrl.toString(), c.req.raw)
+            return App().fetch(newRequest, c.env)
+          }
+          return next()
         })
         .use((c, next) => {
           const password = Flag.OPENCODE_SERVER_PASSWORD
@@ -498,15 +631,82 @@ export namespace Server {
           },
         )
         .all("/*", async (c) => {
-          const path = c.req.path
+          let reqPath = c.req.path
+          // Strip basePath prefix if present
+          if (_basePath !== "/" && reqPath.startsWith(_basePath)) {
+            reqPath = reqPath.slice(_basePath.length) || "/"
+          }
 
-          const response = await proxy(`https://app.opencode.ai${path}`, {
+          // Prefer local app assets when available (useful for base-path debugging).
+          const appRoot = await resolveAppRoot()
+          if (appRoot) {
+            return serveLocalApp(c, appRoot, reqPath)
+          }
+
+          const response = await proxy(`https://app.opencode.ai${reqPath}`, {
             ...c.req,
             headers: {
               ...c.req.raw.headers,
               host: "app.opencode.ai",
             },
           })
+
+          const contentType = response.headers.get("content-type") || ""
+
+          // For text responses (HTML/JS/CSS), rewrite absolute paths to include basePath
+          const isTextContent =
+            contentType.includes("text/html") ||
+            contentType.includes("application/javascript") ||
+            contentType.includes("text/javascript") ||
+            contentType.includes("text/css")
+
+          if (_basePath !== "/" && isTextContent) {
+            let content = await response.text()
+
+            // Rewrite absolute path references in all text content (global replace)
+            content = content
+              // CSS url() patterns
+              .replaceAll(/url\("\//g, `url("${_basePath}/`)
+              .replaceAll(/url\('\//g, `url('${_basePath}/`)
+              .replaceAll(/url\(\//g, `url(${_basePath}/`)
+              // HTML attributes
+              .replaceAll(/href="\//g, `href="${_basePath}/`)
+              .replaceAll(/src="\//g, `src="${_basePath}/`)
+              // JS string assignments for asset paths (e.g., ="/assets/xxx")
+              .replaceAll(/="\/assets\//g, `="${_basePath}/assets/`)
+
+            // For JS files: rewrite window.location.origin to include basePath for API calls
+            if (contentType.includes("javascript")) {
+              const basePrefix = _basePath.replace(/^\/+/, "")
+              content = content
+                // Vite preload deps are often like "assets/xyz.js" (no leading slash) and end up requested as "/assets/xyz.js".
+                .replaceAll(/(["'])assets\//g, `$1${basePrefix}/assets/`)
+                // Handle any remaining absolute asset paths in JS string literals.
+                .replaceAll(/(["'])\/assets\//g, `$1${_basePath}/assets/`)
+            }
+
+            // HTML-specific: inject <base> tag and API base URL at the very beginning of <head>
+            // to ensure __OPENCODE_BASE_URL__ is available before any scripts execute
+            if (contentType.includes("text/html")) {
+              const baseTag = `<base href="${_basePath}/">`
+              const scriptTag = `<script>window.__OPENCODE_BASE_URL__="${_basePath}"</script>`
+              content = content.replace(/<head(\s[^>]*)?>/i, (match) => `${match}${baseTag}${scriptTag}`)
+            }
+
+            const newHeaders = new Headers(response.headers)
+            newHeaders.delete("content-length")
+            if (contentType.includes("text/html")) {
+              newHeaders.set(
+                "Content-Security-Policy",
+                "default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; img-src 'self' data: https:; font-src 'self' data:; connect-src 'self'",
+              )
+            }
+            return new Response(content, {
+              status: response.status,
+              headers: newHeaders,
+            })
+          }
+
           response.headers.set(
             "Content-Security-Policy",
             "default-src 'self'; script-src 'self' 'wasm-unsafe-eval'; style-src 'self' 'unsafe-inline'; img-src 'self' data: https:; font-src 'self' data:; connect-src 'self' data:",
@@ -530,8 +730,9 @@ export namespace Server {
     return result
   }
 
-  export function listen(opts: { port: number; hostname: string; mdns?: boolean; cors?: string[] }) {
+  export function listen(opts: { port: number; hostname: string; mdns?: boolean; cors?: string[]; basePath?: string }) {
     _corsWhitelist = opts.cors ?? []
+    _basePath = (opts.basePath ?? "/").replace(/\/+$/, "") || "/"
 
     const args = {
       hostname: opts.hostname,

@@ -23,6 +23,11 @@ const options = {
     describe: "additional domains to allow for CORS",
     default: [] as string[],
   },
+  "base-path": {
+    type: "string" as const,
+    describe: "base path prefix for all routes (e.g., /app/)",
+    default: "/",
+  },
 }
 
 export type NetworkOptions = InferredOptionTypes<typeof options>
@@ -37,6 +42,7 @@ export async function resolveNetworkOptions(args: NetworkOptions) {
   const hostnameExplicitlySet = process.argv.includes("--hostname")
   const mdnsExplicitlySet = process.argv.includes("--mdns")
   const corsExplicitlySet = process.argv.includes("--cors")
+  const basePathExplicitlySet = process.argv.includes("--base-path")
 
   const mdns = mdnsExplicitlySet ? args.mdns : (config?.server?.mdns ?? args.mdns)
   const port = portExplicitlySet ? args.port : (config?.server?.port ?? args.port)
@@ -48,6 +54,7 @@ export async function resolveNetworkOptions(args: NetworkOptions) {
   const configCors = config?.server?.cors ?? []
   const argsCors = Array.isArray(args.cors) ? args.cors : args.cors ? [args.cors] : []
   const cors = [...configCors, ...argsCors]
+  const basePath = basePathExplicitlySet ? args["base-path"] : (config?.server?.basePath ?? args["base-path"])
 
-  return { hostname, port, mdns, cors }
+  return { hostname, port, mdns, cors, basePath }
 }

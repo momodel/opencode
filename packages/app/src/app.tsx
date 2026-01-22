@@ -44,6 +44,7 @@ function UiI18nBridge(props: ParentProps) {
 declare global {
   interface Window {
     __OPENCODE__?: { updaterEnabled?: boolean; serverPassword?: string }
+    __OPENCODE_BASE_URL__?: string
   }
 }
 
@@ -85,8 +86,12 @@ function ServerKey(props: ParentProps) {
 }
 
 export function AppInterface(props: { defaultUrl?: string }) {
+  const basePath = () => (window.__OPENCODE_BASE_URL__ ?? "").replace(/\/+$/, "")
   const defaultServerUrl = () => {
     if (props.defaultUrl) return props.defaultUrl
+    const base = basePath()
+    // Check for injected base path from server (for reverse proxy setups)
+    if (base) return window.location.origin + base
     if (location.hostname.includes("opencode.ai")) return "http://localhost:4096"
     if (import.meta.env.DEV)
       return `http://${import.meta.env.VITE_OPENCODE_SERVER_HOST ?? "localhost"}:${import.meta.env.VITE_OPENCODE_SERVER_PORT ?? "4096"}`
@@ -100,6 +105,7 @@ export function AppInterface(props: { defaultUrl?: string }) {
         <GlobalSDKProvider>
           <GlobalSyncProvider>
             <Router
+              base={basePath()}
               root={(props) => (
                 <SettingsProvider>
                   <PermissionProvider>

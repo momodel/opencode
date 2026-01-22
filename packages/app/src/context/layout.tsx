@@ -351,7 +351,10 @@ export const { use: useLayout, provider: LayoutProvider } = createSimpleContext(
         list,
         open(directory: string) {
           const root = roots().get(directory) ?? directory
-          if (server.projects.list().find((x) => x.worktree === root)) return
+          const existingProject = server.projects.list().find((x) => x.worktree === root)
+          if (existingProject) {
+            return
+          }
           globalSync.project.loadSessions(root)
           server.projects.open(root)
         },

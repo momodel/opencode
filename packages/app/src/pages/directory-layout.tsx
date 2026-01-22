@@ -1,8 +1,10 @@
-import { createMemo, Show, type ParentProps } from "solid-js"
+import { createEffect, createMemo, Show, type ParentProps } from "solid-js"
 import { useNavigate, useParams } from "@solidjs/router"
 import { SDKProvider, useSDK } from "@/context/sdk"
 import { SyncProvider, useSync } from "@/context/sync"
 import { LocalProvider } from "@/context/local"
+import { useLayout } from "@/context/layout"
+import { useServer } from "@/context/server"
 
 import { base64Decode } from "@opencode-ai/util/encode"
 import { DataProvider } from "@opencode-ai/ui/context"
@@ -12,9 +14,22 @@ import type { QuestionAnswer } from "@opencode-ai/sdk/v2"
 export default function Layout(props: ParentProps) {
   const params = useParams()
   const navigate = useNavigate()
+  const layout = useLayout()
+  const server = useServer()
   const directory = createMemo(() => {
     return base64Decode(params.dir!)
   })
+
+  // Auto-open project when accessing via URL with directory parameter
+  // Wait for server to be ready so that server.projects.open() works correctly
+  createEffect(() => {
+    if (!server.ready()) return
+    const dir = directory()
+    if (dir) {
+      layout.projects.open(dir)
+    }
+  })
+
   return (
     <Show when={params.dir} keyed>
       <SDKProvider directory={directory()}>
