@@ -110,9 +110,17 @@ const platform: Platform = {
   setDefaultServerUrl: writeDefaultServerUrl,
 }
 
+declare global {
+  interface Window {
+    __OPENCODE_BASE_URL__?: string
+  }
+}
+
 const defaultUrl = iife(() => {
   const lsDefault = readDefaultServerUrl()
   if (lsDefault) return lsDefault
+  const basePath = (window.__OPENCODE_BASE_URL__ ?? "").replace(/\/+$/, "")
+  if (basePath) return `${location.origin}${basePath}`
   if (location.hostname.includes("opencode.ai")) return "http://localhost:4096"
   if (import.meta.env.DEV)
     return `http://${import.meta.env.VITE_OPENCODE_SERVER_HOST ?? "localhost"}:${import.meta.env.VITE_OPENCODE_SERVER_PORT ?? "4096"}`
