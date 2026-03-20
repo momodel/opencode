@@ -144,8 +144,15 @@ await $`rm -rf dist`
 
 const binaries: Record<string, string> = {}
 if (!skipInstall) {
-  await $`bun install --os="*" --cpu="*" @opentui/core@${pkg.dependencies["@opentui/core"]}`
-  await $`bun install --os="*" --cpu="*" @parcel/watcher@${pkg.dependencies["@parcel/watcher"]}`
+  if (singleFlag) {
+    // Single-target builds only need the current platform packages; pulling every
+    // platform artifact is slower and can fail on mirrored registries.
+    await $`bun install @opentui/core@${pkg.dependencies["@opentui/core"]}`
+    await $`bun install @parcel/watcher@${pkg.dependencies["@parcel/watcher"]}`
+  } else {
+    await $`bun install --os="*" --cpu="*" @opentui/core@${pkg.dependencies["@opentui/core"]}`
+    await $`bun install --os="*" --cpu="*" @parcel/watcher@${pkg.dependencies["@parcel/watcher"]}`
+  }
 }
 for (const item of targets) {
   const name = [
