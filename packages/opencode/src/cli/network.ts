@@ -4,6 +4,11 @@ import type { Config } from "@/config/config"
 import { Effect } from "effect"
 
 const options = {
+  "base-path": {
+    type: "string" as const,
+    describe: "base path prefix for all routes",
+    default: "/",
+  },
   port: {
     type: "number" as const,
     describe: "port to listen on",
@@ -76,5 +81,6 @@ export function resolveNetworkOptionsNoConfig(args: NetworkOptions, config?: Con
   const argsCors = Array.isArray(args.cors) ? args.cors : args.cors ? [args.cors] : []
   const cors = [...configCors, ...argsCors]
 
-  return { hostname, port, mdns, mdnsDomain, cors }
+  const basePath = hasArg("--base-path") ? args["base-path"] : (config?.server?.basePath ?? args["base-path"])
+  return { hostname, port, mdns, mdnsDomain, cors, basePath }
 }

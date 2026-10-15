@@ -588,6 +588,7 @@ export function AppInterface(props: {
             <Show when={useSettings().general.newLayoutDesigns().toString()} keyed>
               <Dynamic
                 component={props.router ?? Router}
+                base={(window as Window & { __OPENCODE_BASE_URL__?: string }).__OPENCODE_BASE_URL__}
                 root={(routerProps) => (
                   <TabsProvider>
                     <PermissionProvider>

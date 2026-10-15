@@ -4,6 +4,7 @@ import { Schema } from "effect"
 import { PositiveInt } from "../../schema"
 
 export const Server = Schema.Struct({
+  basePath: Schema.optional(Schema.String).annotate({ description: "Base path prefix for all routes" }),
   port: Schema.optional(PositiveInt).annotate({
     description: "Port to listen on",
   }),

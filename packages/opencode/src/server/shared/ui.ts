@@ -3,6 +3,8 @@ import { Effect, Stream } from "effect"
 import { HttpBody, HttpClient, HttpClientRequest, HttpServerRequest, HttpServerResponse } from "effect/unstable/http"
 import { createHash } from "node:crypto"
 import { ProxyUtil } from "../proxy-util"
+import path from "node:path"
+import { rewriteHTML } from "./base-path"
 
 let embeddedUIPromise: Promise<Record<string, string> | null> | undefined
 
@@ -18,7 +20,9 @@ export function themePreloadHash(body: string) {
 
 export function cspForHtml(body: string) {
   const match = themePreloadHash(body)
-  return csp(match ? createHash("sha256").update(match[2]).digest("base64") : "")
+  const policy = csp(match ? createHash("sha256").update(match[2]).digest("base64") : "")
+  const base = body.match(/<script id="oc-base-path-script">([\s\S]*?)<\/script>/)
+  return base ? policy.replace("script-src 'self'", `script-src 'self' 'sha256-${createHash("sha256").update(base[1]).digest("base64")}'`) : policy
 }
 
 function requestBody(request: HttpServerRequest.HttpServerRequest) {
@@ -52,11 +56,13 @@ function notFound() {
   return HttpServerResponse.jsonUnsafe({ error: "Not Found" }, { status: 404 })
 }
 
-function embeddedUIResponse(file: string, body: Uint8Array) {
+function embeddedUIResponse(file: string, body: Uint8Array, basePath = "") {
   const mime = FSUtil.mimeType(file)
   const headers = new Headers({ "content-type": mime })
   if (mime.startsWith("text/html")) {
-    headers.set("content-security-policy", cspForHtml(new TextDecoder().decode(body)))
+    const html = rewriteHTML(new TextDecoder().decode(body), basePath)
+    headers.set("content-security-policy", cspForHtml(html))
+    return HttpServerResponse.text(html, { headers })
   }
   return HttpServerResponse.raw(body, { headers })
 }
@@ -65,12 +71,13 @@ export function serveEmbeddedUIEffect(
   requestPath: string,
   fs: FSUtil.Interface,
   embeddedWebUI: Record<string, string>,
+  basePath = "",
 ) {
   const file = embeddedWebUI[requestPath.replace(/^\//, "")] ?? embeddedWebUI["index.html"] ?? null
   if (!file) return Effect.succeed(notFound())
 
   return fs.readFile(file).pipe(
-    Effect.map((body) => embeddedUIResponse(file, body)),
+    Effect.map((body) => embeddedUIResponse(file, body, basePath)),
     Effect.catchReason("PlatformError", "NotFound", () => Effect.succeed(notFound())),
   )
 }
@@ -82,8 +89,13 @@ export function serveUIEffect(
   return Effect.gen(function* () {
     const embeddedWebUI = yield* Effect.promise(() => embeddedUI(services.disableEmbeddedWebUi))
     const path = new URL(request.url, "http://localhost").pathname
+    const basePath = request.headers["x-opencode-base-path"] ?? ""
 
-    if (embeddedWebUI) return yield* serveEmbeddedUIEffect(path, services.fs, embeddedWebUI)
+    if (process.env.OPENCODE_APP_DIR) {
+      return yield* serveLocalUIEffect(path, services.fs, process.env.OPENCODE_APP_DIR, basePath)
+    }
+
+    if (embeddedWebUI) return yield* serveEmbeddedUIEffect(path, services.fs, embeddedWebUI, basePath)
 
     const response = yield* services.client.execute(
       HttpClientRequest.make(request.method)(upstreamURL(path), {
@@ -94,7 +106,7 @@ export function serveUIEffect(
     const headers = proxyResponseHeaders(response.headers)
 
     if (response.headers["content-type"]?.includes("text/html")) {
-      const body = yield* response.text
+      const body = rewriteHTML(yield* response.text, basePath)
       headers.set("Content-Security-Policy", cspForHtml(body))
       return HttpServerResponse.text(body, { status: response.status, headers })
     }
@@ -104,5 +116,20 @@ export function serveUIEffect(
       status: response.status,
       headers,
     })
+  })
+}
+
+function serveLocalUIEffect(requestPath: string, fs: FSUtil.Interface, directory: string, basePath: string) {
+  return Effect.gen(function* () {
+    const decoded = yield* Effect.try({ try: () => decodeURIComponent(requestPath), catch: () => "Invalid path" }).pipe(Effect.orElseSucceed(() => ""))
+    if (!decoded) return notFound()
+    const root = path.resolve(directory)
+    const file = path.resolve(root, "." + decoded)
+    if (path.relative(root, file).startsWith("..")) return notFound()
+    const target = path.extname(file) ? file : path.join(root, "index.html")
+    return yield* fs.readFile(target).pipe(
+      Effect.map((body) => embeddedUIResponse(target, body, basePath)),
+      Effect.catchReason("PlatformError", "NotFound", () => Effect.succeed(notFound())),
+    )
   })
 }

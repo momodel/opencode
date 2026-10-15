@@ -13,6 +13,7 @@ import { WebSocketTracker } from "./routes/instance/httpapi/websocket-tracker"
 import { PublicApi } from "./routes/instance/httpapi/public"
 import type { CorsOptions } from "@opencode-ai/server/cors"
 import { lazy } from "@/util/lazy"
+import { normalizeBasePath, stripBasePath } from "./shared/base-path"
 
 // @ts-ignore This global is needed to prevent ai-sdk from logging warnings to stdout https://github.com/vercel/ai/blob/2dc67e0ef538307f21368db32d5a12345d98831b/packages/ai/src/logger/log-warnings.ts#L85
 globalThis.AI_SDK_LOG_WARNINGS = false
@@ -34,6 +35,7 @@ type ListenOptions = CorsOptions & {
   hostname: string
   mdns?: boolean
   mdnsDomain?: string
+  basePath?: string
 }
 type ListenerState = {
   scope: Scope.Scope
@@ -104,7 +106,7 @@ function listenerLayer(opts: ListenOptions, port: number) {
     disableListenLog: true,
   }).pipe(
     Layer.provideMerge(AppNodeBuilder.build(WebSocketTracker.node)),
-    Layer.provideMerge(serverLayer({ port, hostname: opts.hostname })),
+    Layer.provideMerge(serverLayer({ port, hostname: opts.hostname, basePath: opts.basePath })),
     // Install a fresh `ConfigProvider` per listener so `Config.string(...)`
     // reads reflect the current `process.env`. Effect's default
     // `ConfigProvider` snapshots `process.env` on first read and caches the
@@ -196,8 +198,16 @@ function forceClose(state: ListenerState) {
   return Effect.all([state.http.closeAll, state.websockets.closeAll], { concurrency: "unbounded", discard: true })
 }
 
-function serverLayer(opts: { port: number; hostname: string }) {
+function serverLayer(opts: { port: number; hostname: string; basePath?: string }) {
   const server = createServer()
+  const basePath = normalizeBasePath(opts.basePath)
+  // Run before Effect's HTTP and WebSocket handlers, which route from request.url.
+  const prefix = (request: import("node:http").IncomingMessage) => {
+    request.headers["x-opencode-base-path"] = basePath
+    request.url = stripBasePath(request.url ?? "/", basePath)
+  }
+  server.prependListener("request", prefix)
+  server.prependListener("upgrade", prefix)
   const serverRef = { closeStarted: false, forceStop: false }
   const close = server.close.bind(server)
   // Keep shutdown owned by NodeHttpServer, but honor listener.stop(true) by
