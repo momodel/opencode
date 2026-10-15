@@ -45,9 +45,22 @@ export function createApiForServer(input: {
   server: ServerConnection.HttpBase
   fetch?: typeof globalThis.fetch
 }): OpenCodeClient {
+  const fetch = input.fetch ?? globalThis.fetch
+  const base = new URL(input.server.url)
+  const prefix = base.pathname.replace(/\/+$/, "")
+  const prefixedFetch: typeof globalThis.fetch = Object.assign(
+    (request: RequestInfo | URL, init?: RequestInit) => {
+      const url = new URL(request instanceof Request ? request.url : request)
+      if (url.origin === base.origin && prefix && url.pathname !== prefix && !url.pathname.startsWith(prefix + "/")) {
+        url.pathname = prefix + url.pathname
+      }
+      return fetch(request instanceof Request ? new Request(url, request) : url, init)
+    },
+    { preconnect: fetch.preconnect },
+  )
   return OpenCode.make({
     baseUrl: input.server.url,
-    fetch: input.fetch,
+    fetch: prefixedFetch,
     headers: input.server.password
       ? {
           Authorization: `Basic ${authTokenFromCredentials({

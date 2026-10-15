@@ -13,6 +13,15 @@ function abortFromInput(input: RequestInfo | URL, init?: RequestInit) {
 }
 
 describe("checkServerHealth", () => {
+  test("preserves MO prefix in the generated client health URL", async () => {
+    const paths: string[] = []
+    const fetch = (async (input: RequestInfo | URL) => {
+      paths.push(new URL(input instanceof Request ? input.url : input).pathname)
+      return Response.json({ healthy: true, version: "1.19.0+mo.1" })
+    }) as typeof globalThis.fetch
+    expect((await checkServerHealth({ url: "http://localhost:4096/hub_api/opencode/test/" }, fetch)).healthy).toBe(true)
+    expect(paths).toEqual(["/hub_api/opencode/test/api/health"])
+  })
   test("returns healthy response with version", async () => {
     let request: URL | undefined
     const fetch = (async (input: RequestInfo | URL) => {

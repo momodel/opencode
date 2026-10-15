@@ -8,6 +8,15 @@ const mockFetch = (run: (input: string | URL | Request) => Promise<Response>) =>
   Object.assign(run, { preconnect: globalThis.fetch.preconnect })
 
 describe("detectServerProtocol", () => {
+  test("preserves the MO server URL prefix during protocol detection", async () => {
+    const paths: string[] = []
+    const fetcher = mockFetch((input) => {
+      paths.push(new URL(input instanceof Request ? input.url : input).pathname)
+      return Promise.resolve(json({ healthy: true }))
+    })
+    expect(await detectServerProtocol({ url: "http://localhost:4096/hub_api/opencode/test/" }, fetcher)).toBe("v1")
+    expect(paths).toEqual(["/hub_api/opencode/test/global/health"])
+  })
   test("prefers the legacy health endpoint when both API generations exist", async () => {
     const fetcher = mockFetch((input) => {
       const path = new URL(input instanceof Request ? input.url : input).pathname

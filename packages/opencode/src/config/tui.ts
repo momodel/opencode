@@ -239,7 +239,7 @@ const layer = Layer.effect(
             add: [
               {
                 name: "@opencode-ai/plugin",
-                version: InstallationLocal ? undefined : InstallationVersion,
+                version: InstallationLocal ? undefined : InstallationVersion.split("+", 1)[0],
               },
             ],
           })
