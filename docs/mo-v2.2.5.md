@@ -37,8 +37,10 @@ Use a representative copy of the v1 data to check migration. Keep the old image,
 
 - Official v2.2.5 source built and served the root UI and authenticated health endpoint.
 - MO's macOS arm64 build reports `2.2.5+mo.1`. The repository check passed. The Web UI suite passed 4 tests and the upstream v1 migration suite passed 36 tests.
-- An isolated Chromium browser opened the existing iframe URL directly into a draft in the encoded directory. Reload retained the draft route, the default theme was light with a dark system preference, and browser API requests kept the prefix.
+- An isolated Chromium browser opened the existing iframe URL directly into a draft in the encoded directory. Reload retained the draft route, the default theme was light with a dark system preference, and browser API requests kept the prefix. An old saved-session link opened in the v2 route and rendered highlighted code. A root-path browser retained its saved dark theme.
 - The compiled CLI served both the configured local UI and the embedded fallback. Authenticated SSE, session creation/readback, and a ticketed terminal WebSocket carrying actual shell output passed over the prefix.
 - A disposable database built from the v1.2.17 SQL migrations kept its test session and message after upgrading. A new v2 session received a reply from a local test provider. Restoring the pre-upgrade snapshot recovered the v1 fixture and passed SQLite integrity checking.
+
+- The local Docker image `opencode-mo:2.2.5-local` was built for Linux amd64 and reports `2.2.5+mo.1`. In an isolated container, its packaged local UI, authenticated SSE, session create/read, and terminal WebSocket passed. It is a test image, separate from the MO singleuser image.
 
 The database above contains synthetic data. Real user data, the existing notebook plugin, and the deployed MO proxy have not been validated.
