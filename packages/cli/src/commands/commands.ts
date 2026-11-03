@@ -568,6 +568,7 @@ const Root = Spec.make(typeof OPENCODE_CLI_NAME === "string" ? OPENCODE_CLI_NAME
     Spec.make("serve", {
       description: "Start the v2 API and web server",
       params: {
+        basePath: Flag.String("base-path").pipe(Flag.withDescription("Web and API path prefix"), Flag.optional),
         hostname: Flag.String("hostname").pipe(Flag.optional),
         port: Flag.Int("port").pipe(Flag.optional),
         cors: Flag.String("cors").pipe(

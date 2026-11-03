@@ -1,3 +1,4 @@
+import { appPath } from "@/runtime/platform/mount"
 import { createSimpleContext } from "@opencode/ui/context"
 import { useLocation, useNavigate } from "@solidjs/router"
 import { onCleanup } from "solid-js"
@@ -43,7 +44,7 @@ export const { provider: VoiceProvider, use: useVoice } = createSimpleContext({
         const check = () => {
           if (signal.aborted) return reject(signal.reason)
 
-          if (location.pathname === href) return resolve()
+          if (appPath(location.pathname) === href) return resolve()
 
           if (Date.now() - started > 3000) return reject(new Error("Desktop did not show the session"))
           setTimeout(check, 50)

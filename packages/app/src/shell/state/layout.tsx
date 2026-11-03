@@ -1,3 +1,4 @@
+import { appPath } from "@/runtime/platform/mount"
 import { createStore, produce, reconcile } from "solid-js/store"
 import { Predicate, Schema, SchemaGetter } from "effect"
 import { batch, createEffect, createMemo, onCleanup, onMount, untrack, type Accessor } from "solid-js"
@@ -94,7 +95,12 @@ export const currentRoute = (pathname: string, search: string): LayoutRoute => {
 export const useCurrentRoute = () => {
   const location = useLocation()
 
-  return createMemo(() => currentRoute(location.pathname, location.search))
+  return createMemo(() => {
+    const path = appPath(location.pathname)
+    // The embedded legacy route resolves to a v2 draft or session after the shell mounts.
+    if (path !== location.pathname && /^\/[^/]+\/session(?:\/[^/]+)?$/.test(path)) return { type: "home" } as const
+    return currentRoute(path, location.search)
+  })
 }
 
 const sessionTabsSchema = Persistence.struct({

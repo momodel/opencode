@@ -18,6 +18,7 @@ import { RetainedImage } from "./services/retained-image"
 import { ServiceRegistration } from "./services/service-registration"
 import { RemoteTunnel } from "./services/remote-tunnel"
 import { WebUi } from "./services/web-ui"
+import { resolve } from "./services/base-path"
 import { databasePath } from "./database-path"
 
 export type Mode = "default" | "service" | "stdio"
@@ -27,6 +28,7 @@ export type Options = {
   readonly hostname?: string
   readonly port?: number
   readonly cors?: readonly string[]
+  readonly basePath?: string
 }
 
 // The process effect lives until server shutdown; tracing it would parent every request to one process-lifetime trace.
@@ -96,7 +98,8 @@ const processEffect = Effect.fnUntraced(function* (options: Options) {
             : randomBytes(32).toString("base64url")
       if (!password) return yield* Effect.fail(new Error("Missing server password"))
       const instanceID = randomUUID()
-      const transform = yield* WebUi.handler()
+      const base = yield* resolve(options.basePath, foreground ? global.config : undefined)
+      const transform = yield* WebUi.handler({ base })
       const remote = { urls: [] as ReadonlyArray<string> }
       const launch = start(
         {
@@ -205,7 +208,7 @@ const processEffect = Effect.fnUntraced(function* (options: Options) {
         )
       }
       const url = HttpServer.formatAddress(server.address)
-      console.log(options.mode === "stdio" ? JSON.stringify({ url }) : `server listening on ${url}`)
+      console.log(options.mode === "stdio" ? JSON.stringify({ url }) : `server listening on ${url}${base}`)
       if (foreground && !environmentPassword) console.log(`server password ${password}`)
       return yield* options.mode === "service"
         ? server.shutdown

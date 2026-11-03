@@ -1,3 +1,4 @@
+import { appPath } from "@/runtime/platform/mount"
 import type { SessionMessageUser } from "@opencode/client/promise"
 import { useLocation, useNavigate } from "@solidjs/router"
 import { createEffect, createMemo, onCleanup, onMount } from "solid-js"
@@ -54,7 +55,7 @@ export const useSessionHashScroll = (input: {
 
     if (!location.hash) return
     clearing = true
-    navigate(location.pathname + location.search, { replace: true })
+    navigate(appPath(location.pathname) + location.search, { replace: true })
   }
 
   const updateHash = (id: string) => {
@@ -62,7 +63,7 @@ export const useSessionHashScroll = (input: {
 
     if (location.hash === hash) return
     clearing = false
-    navigate(location.pathname + location.search + hash, {
+    navigate(appPath(location.pathname) + location.search + hash, {
       replace: true,
     })
   }

@@ -1,7 +1,7 @@
 import { createBrowserDraftStore } from "@/runtime/persistence/drafts"
 import type { Platform } from "./platform"
 
-export function createWebPlatform(version: string) {
+export function createWebPlatform(version: string, base = "") {
   const platform: Platform = {
     platform: "web",
     draftStore: createBrowserDraftStore(),
@@ -41,11 +41,11 @@ export function createWebPlatform(version: string) {
 
   return {
     platform,
-    currentServerUrl: getCurrentServerUrl(),
+    currentServerUrl: getCurrentServerUrl(base),
   }
 }
 
-function getCurrentServerUrl() {
+function getCurrentServerUrl(base: string) {
   if (import.meta.env.VITE_OPENCODE_SERVER_MODE === "none") return undefined
 
   if (import.meta.env.DEV) {
@@ -57,5 +57,5 @@ function getCurrentServerUrl() {
     return `http://${host}:${import.meta.env.VITE_OPENCODE_SERVER_PORT ?? "4096"}`
   }
 
-  return location.origin
+  return location.origin + base
 }

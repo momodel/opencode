@@ -1,3 +1,4 @@
+import { appPath } from "@/runtime/platform/mount"
 import {
   batch,
   createComputed,
@@ -1069,7 +1070,7 @@ export function createPluginAttachment(apis: HostApis) {
     command: (id) => void run(id),
     font: () => terminalFontFamily(settings.appearance.terminalFont()),
     routing: useIsRouting(),
-    path: () => `${location.pathname}${location.search}`,
+    path: () => `${appPath(location.pathname)}${location.search}`,
     keybind: command.keybindParts,
     matches: command.matches,
     servers: () => global.servers.list().map(ServerConnection.key),

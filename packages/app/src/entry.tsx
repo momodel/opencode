@@ -6,6 +6,7 @@ import { render } from "solid-js/web"
 import { AppBaseProviders, AppInterface } from "@/app"
 import { loadInitialLocale } from "@/runtime/i18n/language"
 import { PlatformProvider } from "@/runtime/platform/platform"
+import { mount } from "@/runtime/platform/mount"
 import { createWebPlatform } from "@/runtime/platform/web"
 import { isStandalone, PwaRoutePersistence, restorePwaRoute } from "@/runtime/platform/pwa"
 import { KeyboardInsets } from "@/runtime/platform/keyboard"
@@ -49,9 +50,11 @@ const clearAuthToken = () => {
   history.replaceState(null, "", location.pathname + (params.size ? `?${params}` : "") + location.hash)
 }
 
-const web = createWebPlatform(pkg.version)
+const base = mount()
+const web = createWebPlatform(pkg.version, base)
 
-if (import.meta.env.PROD && "serviceWorker" in navigator) {
+// The mounted HTML differs from the build-time Workbox integrity entry.
+if (!base && import.meta.env.PROD && "serviceWorker" in navigator) {
   window.addEventListener("load", () => void navigator.serviceWorker.register("/sw.js"), { once: true })
 }
 
@@ -101,6 +104,7 @@ if (root instanceof HTMLElement && root.dataset.opencodeMounted === undefined) {
         <PlatformProvider value={web.platform}>
           <AppBaseProviders locale={locale}>
             <AppInterface
+              base={base || undefined}
               canonicalLocalServer={server ? ServerConnection.key(server) : undefined}
               servers={server ? [server] : []}
             >

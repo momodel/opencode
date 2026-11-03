@@ -1,5 +1,5 @@
-import { Route, useParams } from "@solidjs/router"
-import { createMemo, lazy, Show, Suspense, type ParentProps } from "solid-js"
+import { Navigate, Route, useParams } from "@solidjs/router"
+import { createEffect, createMemo, lazy, Show, Suspense, untrack, type ParentProps } from "solid-js"
 import { Home } from "@/home/route"
 import { ServerProvider } from "@/runtime/server/current"
 import { useGlobal } from "@/runtime/server/runtime"
@@ -8,7 +8,9 @@ import { SessionPanelFrame, SessionRouteFrame } from "@/session/session-frame"
 import { LayoutProvider } from "@/shell/state/layout"
 import { SettingsSurfaceProvider } from "@/settings/surface"
 import Shell from "@/shell/shell"
-import { requireServerKey } from "./session"
+import { requireServerKey, sessionHref } from "./session"
+import { decode64 } from "@/runtime/persistence/base64"
+import { useTabs } from "@/shell/tabs/tabs"
 import { PluginAttachment } from "@/runtime/plugin/root"
 
 export const File = lazy(() => import("@opencode/session-ui/file").then((module) => ({ default: module.File })))
@@ -47,7 +49,7 @@ export function preloadRoute(url: string) {
   return Promise.resolve()
 }
 
-export function AppRoutes() {
+export function AppRoutes(props: { mounted?: boolean }) {
   return (
     <Route component={AppLayout}>
       <Route path="/" component={Home} />
@@ -71,8 +73,34 @@ export function AppRoutes() {
         )}
       />
       <Route path="/new-session" component={DraftRoute} />
+      {props.mounted && <Route path="/:dir/session/:id?" component={MountedSessionRoute} />}
       {ComponentsLab && <Route path="/components" component={ComponentsLab} />}
     </Route>
+  )
+}
+
+function MountedSessionRoute() {
+  const params = useParams<{ dir: string; id?: string }>()
+  const servers = useServers()
+  const tabs = useTabs()
+  const directory = () => decode64(params.dir)
+  const server = () => servers.list[0]
+  createEffect(() => {
+    const conn = server()
+    const dir = directory()
+    if (!tabs.ready() || !conn || !dir?.startsWith("/") || params.id) return
+    void untrack(() => tabs.newDraft({ server: ServerConnection.key(conn), directory: dir }))
+  })
+  return (
+    <Show when={server()}>
+      {(conn) => (
+        <Show when={directory()?.startsWith("/")} fallback={<Navigate href="/" />}>
+          <Show when={params.id} keyed>
+            {(id) => <Navigate href={sessionHref(ServerConnection.key(conn()), id)} />}
+          </Show>
+        </Show>
+      )}
+    </Show>
   )
 }
 

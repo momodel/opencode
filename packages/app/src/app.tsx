@@ -90,6 +90,7 @@ export function AppBaseProviders(
 
 export function AppInterface(props: {
   children?: JSX.Element
+  base?: string
   canonicalLocalServer?: ServerConnection.Key
   servers?: Array<ServerConnection.Any>
   router?: Component<BaseRouterProps>
@@ -118,8 +119,8 @@ export function AppInterface(props: {
   return (
     <ServersProvider canonicalLocalServer={props.canonicalLocalServer} servers={props.servers}>
       <SettingsProvider>
-        <Dynamic component={props.router ?? Router} root={Root}>
-          <AppRoutes />
+        <Dynamic component={props.router ?? Router} root={Root} base={props.base}>
+          <AppRoutes mounted={!!props.base} />
         </Dynamic>
       </SettingsProvider>
     </ServersProvider>

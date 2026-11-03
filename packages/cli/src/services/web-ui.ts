@@ -5,6 +5,7 @@ import { createHash } from "node:crypto"
 import { load, type AssetMap, type BrotliMap } from "../app-assets"
 
 export const handler = Effect.fn("cli.web-ui.handler")(function* (options?: {
+  readonly base?: string
   readonly assets?: AssetMap
   readonly brotli?: BrotliMap
 }) {
@@ -16,6 +17,9 @@ export const handler = Effect.fn("cli.web-ui.handler")(function* (options?: {
     Effect.gen(function* () {
       const request = yield* HttpServerRequest.HttpServerRequest
       const url = new URL(request.url, "http://localhost")
+      const base = options?.base ?? ""
+      const mounted = !!base && (url.pathname === base || url.pathname.startsWith(base + "/"))
+      if (mounted) url.pathname = url.pathname.slice(base.length) || "/"
       // Serve the web shell before API authentication so a signed-out browser gets the app's sign-in screen.
       if (
         url.pathname === "/api" ||
@@ -24,9 +28,20 @@ export const handler = Effect.fn("cli.web-ui.handler")(function* (options?: {
         url.pathname === "/openapi.json"
       )
         return yield* api.pipe(
+          Effect.provideService(
+            HttpServerRequest.HttpServerRequest,
+            mounted ? request.modify({ url: url.pathname + url.search }) : request,
+          ),
           Effect.catchIf(isRouteNotFound, () => Effect.succeed(HttpServerResponse.empty({ status: 404 }))),
+          Effect.map((response) =>
+            mounted && url.pathname.startsWith("/auth/connect/") && response.headers.location === "/"
+              ? HttpServerResponse.setHeader(response, "location", base + "/")
+              : response,
+          ),
         )
-      return yield* assets.pipe(Effect.flatMap((loaded) => serveUI(request, url, loaded.files, loaded.brotli)))
+      return yield* assets.pipe(
+        Effect.flatMap((loaded) => serveUI(request, url, loaded.files, loaded.brotli, mounted ? base : "")),
+      )
     })
 })
 
@@ -35,6 +50,7 @@ function serveUI(
   url: URL,
   assets: AssetMap,
   brotli: BrotliMap | undefined,
+  base: string,
 ) {
   const key = url.pathname.replace(/^\//, "")
   // A browser that takes brotli gets the embedded bytes as they are, so the server decompresses nothing. The HTML stays
@@ -49,13 +65,16 @@ function serveUI(
   if (request.method !== "GET" && request.method !== "HEAD")
     return Effect.succeed(HttpServerResponse.empty({ status: 405 }))
   const html = name === "index.html"
+  const body = html ? (typeof file === "string" ? file : Buffer.from(file).toString()) : file
+  const content =
+    html && base && typeof body === "string"
+      ? body.replace(/<base href="\/" data-opencode-base\s*\/?>/, `<base href="${base}/" data-opencode-base>`)
+      : body
   const revalidate = html || name === "sw.js" || name === "registerSW.js"
   const headers = {
     "content-type": FSUtil.mimeType(name),
     "cache-control": revalidate ? "no-cache" : "public, max-age=31536000, immutable",
-    "content-security-policy": html
-      ? cspForHtml(typeof file === "string" ? file : Buffer.from(file).toString())
-      : csp(),
+    "content-security-policy": html ? cspForHtml(String(content)) : csp(),
     "x-content-type-options": "nosniff",
     ...(!html && brotli?.[name] !== undefined ? { vary: "accept-encoding" } : {}),
     ...(encoded ? { "content-encoding": "br" } : {}),
@@ -63,7 +82,7 @@ function serveUI(
   return Effect.succeed(
     request.method === "HEAD"
       ? HttpServerResponse.empty({ status: 200, headers })
-      : HttpServerResponse.raw(file, { headers, contentType: headers["content-type"] }),
+      : HttpServerResponse.raw(content, { headers, contentType: headers["content-type"] }),
   )
 }
 

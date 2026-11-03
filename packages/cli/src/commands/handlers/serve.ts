@@ -10,6 +10,7 @@ export default Runtime.handler(
     return yield* ServerProcess.run({
       mode: input.service ? "service" : input.stdio ? "stdio" : "default",
       hostname: Option.getOrUndefined(input.hostname),
+      basePath: Option.getOrUndefined(input.basePath),
       port: Option.getOrUndefined(input.port),
       cors: input.cors.length > 0 ? input.cors : undefined,
     })

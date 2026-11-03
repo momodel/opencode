@@ -1,3 +1,4 @@
+import { appPath } from "@/runtime/platform/mount"
 import { createEffect, createMemo, createResource, Match, Show, Switch, untrack } from "solid-js"
 import { createStore, unwrap } from "solid-js/store"
 import { Portal } from "solid-js/web"
@@ -114,7 +115,7 @@ export function Titlebar(props: { verticalTabs?: { mount?: HTMLElement } }) {
     action: undefined,
   })
 
-  const path = () => `${location.pathname}${location.search}${location.hash}`
+  const path = () => `${appPath(location.pathname)}${location.search}${location.hash}`
 
   createEffect(() => {
     const current = { url: path(), state: location.state }

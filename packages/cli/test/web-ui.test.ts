@@ -90,6 +90,47 @@ describe("web UI", () => {
     }).pipe(Effect.provide(NodeFileSystem.layer)),
   )
 
+  it.live("serves a mounted web shell and keeps API authentication and routing", () =>
+    Effect.gen(function* () {
+      const base = "/hub_api/opencode/test-user"
+      const transform = yield* WebUi.handler({
+        base,
+        assets: {
+          "index.html": '<head><base href="/" data-opencode-base></head>',
+          "_assets/app.js": "console.log('mounted')",
+        },
+      })
+      const server = yield* ServerProcess.start<never, never>(
+        { hostname: "127.0.0.1", port: 0, password: "secret", database: { path: ":memory:" } },
+        undefined,
+        transform,
+      )
+      const origin = HttpServer.formatAddress(server.address)
+      const get = (path: string) =>
+        Effect.promise(async () => {
+          const response = await fetch(origin + path)
+          return {
+            status: response.status,
+            body: await response.text(),
+            csp: response.headers.get("content-security-policy"),
+          }
+        })
+      const mounted = yield* get(base + "/L2hvbWUvam92eWFuL3dvcms=/session")
+      expect(mounted.status).toBe(200)
+      expect(mounted.body).toContain(`href="${base}/"`)
+      expect(mounted.csp).toContain("'wasm-unsafe-eval'")
+      expect((yield* get("/")).body).toContain('href="/"')
+      expect((yield* get(base + "-other")).body).toContain('href="/"')
+      expect((yield* get(base + "/_assets/app.js")).body).toBe("console.log('mounted')")
+      expect((yield* get(base + "/_assets/missing.js")).status).toBe(404)
+      expect((yield* get(base + "/api/info")).status).toBe(401)
+      const token = encodeURIComponent(btoa("opencode:secret"))
+      const info = yield* get(base + "/api/info?auth_token=" + token)
+      expect(info.status).toBe(200)
+      expect(JSON.parse(info.body)).toHaveProperty("pid")
+    }).pipe(Effect.provide(NodeFileSystem.layer)),
+  )
+
   test("sends embedded brotli bytes as they are to browsers that accept them", async () => {
     const script = "console.log('compressed')".repeat(50)
     const html = "<html><body>compressed</body></html>"

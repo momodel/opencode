@@ -10,6 +10,12 @@ export type AssetMap = Readonly<Record<string, string | Uint8Array>>
 export type BrotliMap = Readonly<Record<string, Uint8Array>>
 
 export const load = Effect.fn("cli.app-assets.load")(function* () {
+  const fs = yield* FileSystem.FileSystem
+  const dir = process.env.OPENCODE_APP_DIR
+  if (dir) {
+    const root = path.resolve(dir)
+    if (yield* fs.exists(path.join(root, "index.html"))) return { files: yield* sourceAssets(root), brotli: undefined }
+  }
   const embedded = yield* Effect.tryPromise(() => import("virtual:opencode-app-assets")).pipe(
     Effect.map((module) => AppArchive.decode(module.default())),
     Effect.option,
@@ -20,12 +26,11 @@ export const load = Effect.fn("cli.app-assets.load")(function* () {
       brotli: embedded.value,
     }
   if (!OPENCODE_LOCAL) return yield* Effect.fail(new Error("Web UI assets are missing from the CLI build"))
-  return { files: yield* sourceAssets(), brotli: undefined }
+  return { files: yield* sourceAssets(path.resolve(import.meta.dirname, "../../app/dist")), brotli: undefined }
 })
 
-const sourceAssets = Effect.fnUntraced(function* () {
+const sourceAssets = Effect.fnUntraced(function* (root: string) {
   const fs = yield* FileSystem.FileSystem
-  const root = path.resolve(import.meta.dirname, "../../app/dist")
   const files = yield* fs.readDirectory(root, { recursive: true })
   const assets = Object.fromEntries(
     (yield* Effect.forEach(
@@ -47,7 +52,7 @@ function lazy(assets: Readonly<Record<string, unknown>>, load: (key: string) => 
     {},
     {
       get: (_, key) => {
-        if (typeof key !== "string" || assets[key] === undefined) return
+        if (typeof key !== "string" || !Object.hasOwn(assets, key)) return
         const body = load(key)
         return isText(key) ? Buffer.from(body).toString() : body
       },
