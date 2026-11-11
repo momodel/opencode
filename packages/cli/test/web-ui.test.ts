@@ -19,7 +19,7 @@ describe("web UI", () => {
     Effect.gen(function* () {
       const transform = yield* WebUi.handler({
         assets: {
-          "index.html": "<html><body>connect</body></html>",
+          "index.html": '<html><head><base href="/" data-opencode-base></head><body>connect</body></html>',
           "_assets/app.js": "console.log('connect')",
           "_assets/app.css": "body { color: black; }",
           "icons/icon.svg": "<svg></svg>",
@@ -56,6 +56,8 @@ describe("web UI", () => {
             )
           }),
       )
+      const shell = yield* Effect.promise(() => fetch(origin).then((response) => response.text()))
+      expect(shell).toContain('<base href="/" data-opencode-base>')
       yield* Effect.forEach(["/api", "/api/info", "/api/event", "/api/missing", "/openapi.json"], (pathname) =>
         Effect.gen(function* () {
           const response = yield* Effect.promise(() => fetch(new URL(pathname, origin)))
@@ -90,7 +92,7 @@ describe("web UI", () => {
     }).pipe(Effect.provide(NodeFileSystem.layer)),
   )
 
-  it.live("serves a mounted web shell and keeps API authentication and routing", () =>
+  it.live("serves a mounted web shell whether the proxy forwards or strips the prefix", () =>
     Effect.gen(function* () {
       const base = "/hub_api/opencode/test-user"
       const transform = yield* WebUi.handler({
@@ -106,28 +108,65 @@ describe("web UI", () => {
         transform,
       )
       const origin = HttpServer.formatAddress(server.address)
-      const get = (path: string) =>
+      const get = (path: string, init?: RequestInit) =>
         Effect.promise(async () => {
-          const response = await fetch(origin + path)
+          const response = await fetch(origin + path, init)
           return {
             status: response.status,
             body: await response.text(),
             csp: response.headers.get("content-security-policy"),
           }
         })
-      const mounted = yield* get(base + "/L2hvbWUvam92eWFuL3dvcms=/session")
-      expect(mounted.status).toBe(200)
-      expect(mounted.body).toContain(`href="${base}/"`)
-      expect(mounted.csp).toContain("'wasm-unsafe-eval'")
-      expect((yield* get("/")).body).toContain('href="/"')
-      expect((yield* get(base + "-other")).body).toContain('href="/"')
-      expect((yield* get(base + "/_assets/app.js")).body).toBe("console.log('mounted')")
-      expect((yield* get(base + "/_assets/missing.js")).status).toBe(404)
-      expect((yield* get(base + "/api/info")).status).toBe(401)
-      const token = encodeURIComponent(btoa("opencode:secret"))
-      const info = yield* get(base + "/api/info?auth_token=" + token)
+      yield* Effect.forEach([base, ""], (prefix) =>
+        Effect.gen(function* () {
+          const shell = yield* get(prefix + "/L2hvbWUvam92eWFuL3dvcms=/session")
+          expect(shell.status).toBe(200)
+          expect(shell.body).toContain(`<base href="${base}/" data-opencode-base>`)
+          expect(shell.csp).toContain("'wasm-unsafe-eval'")
+          expect((yield* get(prefix + "/_assets/app.js")).body).toBe("console.log('mounted')")
+          expect((yield* get(prefix + "/_assets/missing.js")).status).toBe(404)
+          expect((yield* get(prefix + "/api/info")).status).toBe(401)
+          const token = btoa("opencode:secret")
+          const info = yield* get(prefix + "/api/info?auth_token=" + encodeURIComponent(token))
+          expect(info.status).toBe(200)
+          expect(JSON.parse(info.body)).toHaveProperty("pid")
+
+          const pair = yield* get(prefix + "/api/pair", {
+            method: "POST",
+            headers: { authorization: `Basic ${token}` },
+          })
+          const redirect = yield* Effect.promise(() =>
+            fetch(`${origin}${prefix}/auth/connect/${JSON.parse(pair.body).code}`, {
+              redirect: "manual",
+              headers: { accept: "text/html" },
+            }),
+          )
+          expect(redirect.status).toBe(302)
+          expect(redirect.headers.get("location")).toBe(base + "/")
+          yield* Effect.promise(() => redirect.arrayBuffer())
+        }),
+      )
+    }).pipe(Effect.provide(NodeFileSystem.layer)),
+  )
+
+  it.live("opens a mounted workspace without OpenCode credentials when authentication is delegated to the proxy", () =>
+    Effect.gen(function* () {
+      const base = "/hub_api/opencode/test-user"
+      const transform = yield* WebUi.handler({ base, assets: { "index.html": "<html></html>" } })
+      const server = yield* ServerProcess.start<never, never>(
+        { port: 0, password: false, database: { path: ":memory:" } },
+        undefined,
+        transform,
+      )
+      const origin = HttpServer.formatAddress(server.address)
+      const info = yield* Effect.promise(() => fetch(`${origin}${base}/api/info`))
       expect(info.status).toBe(200)
-      expect(JSON.parse(info.body)).toHaveProperty("pid")
+      expect(yield* Effect.promise(() => info.json())).toHaveProperty("pid")
+
+      const events = yield* Effect.promise(() => fetch(`${origin}${base}/api/event`))
+      expect(events.status).toBe(200)
+      expect(events.headers.get("content-type")).toContain("text/event-stream")
+      yield* Effect.promise(() => events.body?.cancel() ?? Promise.resolve())
     }).pipe(Effect.provide(NodeFileSystem.layer)),
   )
 

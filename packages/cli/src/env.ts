@@ -12,6 +12,8 @@ export const password = Config.Redacted("OPENCODE_PASSWORD").pipe(
   Config.withDefault(undefined),
 )
 
+export const jupyterHubUser = Config.String("JUPYTERHUB_USER").pipe(Config.withDefault(undefined))
+
 export function session() {
   return Object.fromEntries(
     Object.entries(process.env).filter(

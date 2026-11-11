@@ -18,8 +18,9 @@ export const handler = Effect.fn("cli.web-ui.handler")(function* (options?: {
       const request = yield* HttpServerRequest.HttpServerRequest
       const url = new URL(request.url, "http://localhost")
       const base = options?.base ?? ""
-      const mounted = !!base && (url.pathname === base || url.pathname.startsWith(base + "/"))
-      if (mounted) url.pathname = url.pathname.slice(base.length) || "/"
+      // A proxy may strip the prefix on the way in, but the browser still uses the configured base.
+      const prefixed = !!base && (url.pathname === base || url.pathname.startsWith(base + "/"))
+      if (prefixed) url.pathname = url.pathname.slice(base.length) || "/"
       // Serve the web shell before API authentication so a signed-out browser gets the app's sign-in screen.
       if (
         url.pathname === "/api" ||
@@ -30,17 +31,17 @@ export const handler = Effect.fn("cli.web-ui.handler")(function* (options?: {
         return yield* api.pipe(
           Effect.provideService(
             HttpServerRequest.HttpServerRequest,
-            mounted ? request.modify({ url: url.pathname + url.search }) : request,
+            prefixed ? request.modify({ url: url.pathname + url.search }) : request,
           ),
           Effect.catchIf(isRouteNotFound, () => Effect.succeed(HttpServerResponse.empty({ status: 404 }))),
           Effect.map((response) =>
-            mounted && url.pathname.startsWith("/auth/connect/") && response.headers.location === "/"
+            base && url.pathname.startsWith("/auth/connect/") && response.headers.location === "/"
               ? HttpServerResponse.setHeader(response, "location", base + "/")
               : response,
           ),
         )
       return yield* assets.pipe(
-        Effect.flatMap((loaded) => serveUI(request, url, loaded.files, loaded.brotli, mounted ? base : "")),
+        Effect.flatMap((loaded) => serveUI(request, url, loaded.files, loaded.brotli, base)),
       )
     })
 })

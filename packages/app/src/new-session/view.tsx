@@ -32,6 +32,7 @@ import { useProviders } from "@/providers/catalog/providers"
 import { NEW_SESSION_CONTENT_WIDTH } from "@/new-session/layout"
 import { Persist, persisted } from "@/runtime/persistence/storage"
 import { Persistence } from "@/runtime/persistence/schema"
+import { mount } from "@/runtime/platform/mount"
 import { useSettings } from "@/settings/model"
 import type { NewSessionWorkspaceController } from "./workspace/controller"
 import { NewSessionBranch } from "./workspace/selector"
@@ -73,6 +74,7 @@ export function NewSessionView(props: {
   )
 
   const settings = useSettings()
+  const moNotebook = mount().startsWith("/hub_api/opencode/")
 
   const [wordmark, setWordmark] = createStore<WordmarkState>({ mode: "flat", game: false })
 
@@ -99,20 +101,25 @@ export function NewSessionView(props: {
           active={props.composer.state.drag === "active"}
           input={props.composer.model.selection.current()?.capabilities.input}
         />
-        <div class="absolute inset-x-0 top-[25.375%] flex justify-center px-6">
+        <div
+          class="absolute inset-x-0 flex justify-center px-6"
+          classList={{ "top-1/2 -translate-y-1/2": moNotebook, "top-[25.375%]": !moNotebook }}
+        >
           <div class={NEW_SESSION_CONTENT_WIDTH}>
-            <NewSessionWordmark
-              ref={(box) => setWordmark("box", box)}
-              sound={settings.sounds.interfaceEnabled}
-              onOpen={() => setWordmark("mode", "open")}
-              onClose={() => setWordmark("mode", "closing")}
-              onFlat={() => setWordmark("mode", "flat")}
-              onPlay={(ball) => {
-                handles.ball = ball
-                setWordmark("game", true)
-              }}
-            />
-            <div class="mt-8 flex flex-col gap-3">
+            <Show when={!moNotebook}>
+              <NewSessionWordmark
+                ref={(box) => setWordmark("box", box)}
+                sound={settings.sounds.interfaceEnabled}
+                onOpen={() => setWordmark("mode", "open")}
+                onClose={() => setWordmark("mode", "closing")}
+                onFlat={() => setWordmark("mode", "flat")}
+                onPlay={(ball) => {
+                  handles.ball = ball
+                  setWordmark("game", true)
+                }}
+              />
+            </Show>
+            <div class="flex flex-col gap-3" classList={{ "mt-8": !moNotebook }}>
               <div data-slot="new-session-composer" class="flex flex-col gap-1">
                 <div class="relative z-10">
                   <Composer model={props.composer} />
@@ -162,7 +169,9 @@ export function NewSessionView(props: {
             />
           )}
         </Show>
-        <NewSessionTips selection={props.composer.model.selection} onDone={props.composer.restoreFocus} />
+        <Show when={!moNotebook}>
+          <NewSessionTips selection={props.composer.model.selection} onDone={props.composer.restoreFocus} />
+        </Show>
       </div>
     </div>
   )

@@ -569,6 +569,11 @@ const Root = Spec.make(typeof OPENCODE_CLI_NAME === "string" ? OPENCODE_CLI_NAME
       description: "Start the v2 API and web server",
       params: {
         basePath: Flag.String("base-path").pipe(Flag.withDescription("Web and API path prefix"), Flag.optional),
+        mdns: Flag.Boolean("mdns").pipe(Flag.withDefault(false), Flag.withHidden),
+        noAuth: Flag.Boolean("experimental-no-auth").pipe(
+          Flag.withDescription("Skip OpenCode authentication behind a trusted, authenticated proxy"),
+          Flag.withDefault(false),
+        ),
         hostname: Flag.String("hostname").pipe(Flag.optional),
         port: Flag.Int("port").pipe(Flag.optional),
         cors: Flag.String("cors").pipe(

@@ -29,6 +29,7 @@ export type Options = {
   readonly port?: number
   readonly cors?: readonly string[]
   readonly basePath?: string
+  readonly auth?: "off" | "if-configured"
 }
 
 // The process effect lives until server shutdown; tracing it would parent every request to one process-lifetime trace.
@@ -83,20 +84,24 @@ const processEffect = Effect.fnUntraced(function* (options: Options) {
       // Keep a package-manager or curl install replaceable while the service runs; Desktop updates its own copy.
       if (options.mode === "service" && process.platform === "win32" && RetainedImage.installed(global.home))
         yield* RetainedImage.retain(global.cache, "service")
-      const { start } = yield* Effect.promise(() => import("@opencode/server/process"))
       const environmentPassword = yield* Env.password
+      if (options.auth === "off" && environmentPassword)
+        return yield* Effect.fail(new Error("--experimental-no-auth cannot be combined with a server password"))
+      const { start } = yield* Effect.promise(() => import("@opencode/server/process"))
       // Keep the lease credential out of the environment inherited by tools.
       if (options.mode === "stdio") {
         delete process.env.OPENCODE_PASSWORD
         delete process.env.OPENCODE_SERVER_PASSWORD
       }
-      const password =
+      const configuredPassword =
         options.mode === "service"
-          ? config.password || randomBytes(32).toString("base64url")
-          : environmentPassword
-            ? Redacted.value(environmentPassword)
-            : randomBytes(32).toString("base64url")
-      if (!password) return yield* Effect.fail(new Error("Missing server password"))
+          ? config.password || undefined
+          : environmentPassword && Redacted.value(environmentPassword)
+      const password =
+        options.auth === "off"
+          ? false
+          : (configuredPassword ?? (options.auth === "if-configured" ? false : randomBytes(32).toString("base64url")))
+      if (password === "") return yield* Effect.fail(new Error("Missing server password"))
       const instanceID = randomUUID()
       const base = yield* resolve(options.basePath, foreground ? global.config : undefined)
       const transform = yield* WebUi.handler({ base })
@@ -146,7 +151,7 @@ const processEffect = Effect.fnUntraced(function* (options: Options) {
                 : !truthy(process.env.OPENCODE_DISABLE_FFF),
           },
         },
-        serviceOptions === undefined
+        serviceOptions === undefined || !password
           ? undefined
           : {
               onListen: (address, shutdown) =>
@@ -209,7 +214,7 @@ const processEffect = Effect.fnUntraced(function* (options: Options) {
       }
       const url = HttpServer.formatAddress(server.address)
       console.log(options.mode === "stdio" ? JSON.stringify({ url }) : `server listening on ${url}${base}`)
-      if (foreground && !environmentPassword) console.log(`server password ${password}`)
+      if (foreground && !environmentPassword && password) console.log(`server password ${password}`)
       return yield* options.mode === "service"
         ? server.shutdown
         : options.mode === "stdio"

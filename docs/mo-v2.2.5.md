@@ -18,14 +18,18 @@ On the target Linux amd64 build host, the binary is `packages/cli/dist/cli-linux
 opencode serve --hostname 127.0.0.1 --port 4096 --base-path=/hub_api/opencode/test-user/
 ```
 
-`server.basePath` in `opencode.json` or `opencode.jsonc` is an alternative for foreground serve. It is read from the OpenCode config directory and startup directory; `OPENCODE_CONFIG`, `OPENCODE_CONFIG_CONTENT`, and `--base-path` override those files in that order. Use the full proxy prefix including the per-server Hub name. The old launcher's `--mdns` flag is absent in v2 and needs to be removed from the singleuser launch command.
+`server.basePath` in `opencode.json` or `opencode.jsonc` is an alternative for foreground serve. It is read from the OpenCode config directory and startup directory; `OPENCODE_CONFIG`, `OPENCODE_CONFIG_CONTENT`, and `--base-path` override those files in that order. Use the full proxy prefix including the per-server Hub name.
 
 ## MO proxy and iframe
 
-- Preserve the path through the proxy and forward WebSocket upgrades and streaming responses. For health, use the v2 `GET <prefix>/api/info` with credentials.
-- v2 always authenticates API access. For seamless iframe access, the authenticated MO proxy needs to authorize the user for the target server and supply the server's matching Basic credential. Keep `OPENCODE_PASSWORD` in the singleuser service and the trusted proxy's credential store; do not put it in the iframe URL. Otherwise use the v2 sign-in flow.
+- The proxy can preserve or strip the route prefix when forwarding to OpenCode. In both cases, set `--base-path` (or `server.basePath`) to the full prefix visible in the browser. Forward WebSocket upgrades and streaming responses. For health through the proxy, use `GET <prefix>/api/info`.
+- v2 requires an OpenCode credential by default. A trusted MO proxy can authorize the user for the target workspace and supply the matching Basic credential. Keep `OPENCODE_PASSWORD` on the server and proxy; do not put it in the iframe URL.
 - Existing iframe paths `<prefix>/<base64-directory>/session` open a v2 draft for that directory. An old URL that includes a session ID redirects to the v2 session route.
 - The mounted HTML uses relative assets and a runtime base URL. PWA registration remains at the root; a mounted iframe skips it because its HTML differs from the build-time integrity entry. Existing WebAssembly support and the theme script's CSP hash are retained.
+
+When foreground `opencode serve` receives `--base-path=/hub_api/opencode/<hub-user>/` matching `JUPYTERHUB_USER` (ignoring trailing `=` padding), the MO build only requires OpenCode credentials if `OPENCODE_PASSWORD` or `OPENCODE_SERVER_PASSWORD` is configured. The Notebook launcher can use `--hostname=0.0.0.0` so the Hub proxy can reach it. Older MO launchers can still pass `--mdns` to select that bind address; the flag does not advertise an mDNS service. A missing or mismatched Hub username keeps the v2 default authentication behavior. A custom launcher can still request `--experimental-no-auth` explicitly.
+
+Deploy this compatibility mode without a server password only if the proxy checks MO login and access to the target workspace on the entire `<prefix>/` route, including API, SSE and WebSocket requests, and clients cannot bypass the proxy to reach port 4096. Checking permissions only when starting the notebook does not protect subsequent requests to its OpenCode port. In staging, check that anonymous users and users from another workspace cannot reach `<prefix>/api/info`, and that an authorized user can open the iframe without pairing.
 
 ## Acceptance and rollback
 
